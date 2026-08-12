@@ -1,0 +1,83 @@
+---
+- name: Compute Docker apt architecture
+  ansible.builtin.set_fact:
+    docker_apt_arch: >-
+      {{ 'amd64' if ansible_architecture == 'x86_64'
+         else 'arm64' if ansible_architecture in ['aarch64', 'arm64']
+         else ansible_architecture }}
+  when: ansible_os_family == "Debian"
+
+- name: Install base packages on Debian/Ubuntu
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+      - gnupg
+      - lsb-release
+      - apt-transport-https
+      - software-properties-common
+      - tar
+      - gzip
+      - openssl
+      - wget
+      - git
+      - jq
+      - openssh-server
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Create Docker apt keyring directory
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker official GPG key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+  when: ansible_os_family == "Debian"
+
+- name: Configure Docker official apt repository
+  ansible.builtin.copy:
+    dest: /etc/apt/sources.list.d/docker.list
+    mode: "0644"
+    content: |
+      deb [arch={{ docker_apt_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker Engine on Debian/Ubuntu
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Install Docker packages on RedHat family
+  ansible.builtin.dnf:
+    name:
+      - docker
+      - docker-compose-plugin
+      - tar
+      - gzip
+      - openssl
+      - wget
+      - git
+      - jq
+      - openssh-server
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Enable and start Docker
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true

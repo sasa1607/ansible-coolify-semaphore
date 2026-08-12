@@ -1,0 +1,13 @@
+{
+  "coolify_create_root_user": true,
+  "coolify_root_username": "admin",
+  "coolify_root_email": "admin@example.com",
+  "coolify_auto_update": true,
+  "coolify_compose_custom_enabled": false,
+  "coolify_validate_ports": true,
+  "coolify_validate_resources": true,
+  "coolify_min_memory_mb": 2048,
+  "coolify_min_available_disk_mb": 30720,
+  "coolify_public_hostname": "",
+  "coolify_validate_public_https": false
+}

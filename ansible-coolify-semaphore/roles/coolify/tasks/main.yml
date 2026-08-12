@@ -1,0 +1,259 @@
+---
+- name: Validate Coolify bootstrap profile
+  ansible.builtin.assert:
+    that:
+      - coolify_data_root == '/data/coolify'
+      - coolify_http_port | int == 80
+      - coolify_https_port | int == 443
+      - coolify_app_port | int == 8000
+      - coolify_realtime_port | int == 6001
+      - coolify_terminal_port | int == 6002
+      - coolify_dashboard_bind_address in ['0.0.0.0', '127.0.0.1']
+      - ansible_architecture in ['x86_64', 'aarch64', 'arm64']
+    fail_msg: >-
+      This bootstrap expects /data/coolify, standard Coolify ports
+      80/443/8000/6001/6002, a dashboard bind of 0.0.0.0 or 127.0.0.1,
+      and a 64-bit amd64/arm64 host.
+
+- name: Check root filesystem available space in MB
+  ansible.builtin.shell: "df -Pm / | awk 'NR==2 { print $4 }'"
+  args:
+    executable: /bin/bash
+  register: coolify_root_available_mb
+  changed_when: false
+  when: coolify_validate_resources | bool
+
+- name: Validate Coolify minimum resources
+  ansible.builtin.assert:
+    that:
+      - ansible_memtotal_mb | int >= coolify_min_memory_mb | int
+      - coolify_root_available_mb.stdout | int >= coolify_min_available_disk_mb | int
+    fail_msg: >-
+      Coolify needs at least {{ coolify_min_memory_mb }} MB RAM and
+      {{ coolify_min_available_disk_mb }} MB free disk on /. Current RAM={{ ansible_memtotal_mb }} MB,
+      free disk={{ coolify_root_available_mb.stdout | default('unknown') }} MB.
+  when: coolify_validate_resources | bool
+
+- name: Detect Docker installed via snap
+  ansible.builtin.shell: |
+    if command -v snap >/dev/null 2>&1; then
+      snap list docker >/dev/null 2>&1
+    else
+      exit 1
+    fi
+  args:
+    executable: /bin/bash
+  register: coolify_snap_docker
+  failed_when: false
+  changed_when: false
+
+- name: Refuse Docker installed via snap
+  ansible.builtin.assert:
+    that:
+      - coolify_snap_docker.rc != 0
+    fail_msg: "Docker installed via snap is not supported by Coolify. Remove it before deploying."
+
+- name: Ensure Coolify install directory exists
+  ansible.builtin.file:
+    path: "{{ coolify_install_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check existing Coolify environment file
+  ansible.builtin.stat:
+    path: "{{ coolify_source_dir }}/.env"
+  register: coolify_env_stat
+
+- name: Repair invalid Coolify ROOT_USERNAME in existing dotenv
+  ansible.builtin.replace:
+    path: "{{ coolify_source_dir }}/.env"
+    regexp: '^ROOT_USERNAME=.*\s+.*$'
+    replace: "ROOT_USERNAME={{ coolify_root_username }}"
+  register: coolify_root_env_repair
+  when:
+    - coolify_repair_root_env | bool
+    - coolify_env_stat.stat.exists
+    - coolify_create_root_user | bool
+
+- name: Check reserved Coolify ports before first install
+  ansible.builtin.shell: |
+    ss -ltnH | awk '{print $4}' | grep -E '(:{{ coolify_http_port }}|:{{ coolify_https_port }}|:{{ coolify_app_port }}|:{{ coolify_realtime_port }}|:{{ coolify_terminal_port }})$' || true
+  args:
+    executable: /bin/bash
+  register: coolify_port_listeners
+  changed_when: false
+  when:
+    - coolify_validate_ports | bool
+    - not coolify_env_stat.stat.exists
+    - not coolify_allow_existing_port_listeners | bool
+
+- name: Refuse Coolify port conflicts before first install
+  ansible.builtin.assert:
+    that:
+      - coolify_port_listeners.stdout | trim == ""
+    fail_msg: >-
+      One or more Coolify ports are already listening before installation:
+      {{ coolify_port_listeners.stdout_lines }}.
+      Free ports 80, 443, 8000, 6001 and 6002, or explicitly set
+      coolify_allow_existing_port_listeners=true.
+  when:
+    - coolify_validate_ports | bool
+    - not coolify_env_stat.stat.exists
+    - not coolify_allow_existing_port_listeners | bool
+
+- name: Download Coolify official installer
+  ansible.builtin.get_url:
+    url: "{{ coolify_install_script_url }}"
+    dest: "{{ coolify_install_script_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Build Coolify installer environment
+  ansible.builtin.set_fact:
+    coolify_install_environment: >-
+      {{
+        {}
+        | combine((coolify_create_root_user | bool) | ternary({
+            'ROOT_USERNAME': coolify_root_username,
+            'ROOT_USER_EMAIL': coolify_root_email,
+            'ROOT_USER_PASSWORD': coolify_root_password
+          }, {}))
+        | combine((coolify_docker_address_pool_base | string | length > 0) | ternary({
+            'DOCKER_ADDRESS_POOL_BASE': coolify_docker_address_pool_base
+          }, {}))
+        | combine((coolify_docker_address_pool_size | string | length > 0) | ternary({
+            'DOCKER_ADDRESS_POOL_SIZE': coolify_docker_address_pool_size | string
+          }, {}))
+        | combine((coolify_docker_pool_force_override | bool) | ternary({
+            'DOCKER_POOL_FORCE_OVERRIDE': 'true'
+          }, {}))
+        | combine((not coolify_auto_update | bool) | ternary({
+            'AUTOUPDATE': 'false'
+          }, {}))
+        | combine((coolify_registry_url | string | length > 0) | ternary({
+            'REGISTRY_URL': coolify_registry_url
+          }, {}))
+      }}
+  no_log: true
+
+- name: Install Coolify via official installer
+  ansible.builtin.shell: |
+    set -o pipefail
+    bash "{{ coolify_install_script_path }}" > "{{ coolify_install_log_path }}" 2>&1
+  args:
+    executable: /bin/bash
+  environment: "{{ coolify_install_environment }}"
+  register: coolify_install_result
+  changed_when: true
+  no_log: "{{ coolify_hide_installer_output | bool and not coolify_debug_installer | bool }}"
+  when: >-
+    coolify_force_install | bool
+    or not coolify_env_stat.stat.exists
+    or (coolify_root_env_repair is defined and coolify_root_env_repair.changed)
+
+- name: Refresh Coolify environment file status
+  ansible.builtin.stat:
+    path: "{{ coolify_source_dir }}/.env"
+  register: coolify_env_after_install
+
+- name: Refuse missing Coolify environment file after installation
+  ansible.builtin.assert:
+    that:
+      - coolify_env_after_install.stat.exists
+    fail_msg: >-
+      Coolify installation did not create {{ coolify_source_dir }}/.env.
+      Check {{ coolify_install_log_path }} and the Coolify installation logs.
+
+- name: Render persistent Coolify compose override
+  ansible.builtin.template:
+    src: docker-compose.custom.yml.j2
+    dest: "{{ coolify_source_dir }}/docker-compose.custom.yml"
+    owner: root
+    group: root
+    mode: "0600"
+  register: coolify_compose_custom
+  when: coolify_compose_custom_enabled | bool
+
+- name: Validate Coolify compose override
+  ansible.builtin.command: >-
+    docker compose
+    -f docker-compose.yml
+    -f docker-compose.prod.yml
+    -f docker-compose.custom.yml
+    config
+  args:
+    chdir: "{{ coolify_source_dir }}"
+  changed_when: false
+  when:
+    - coolify_compose_custom_enabled | bool
+    - coolify_compose_custom is defined
+
+- name: Re-run Coolify installer for upgrade or compose override application
+  ansible.builtin.shell: |
+    set -o pipefail
+    bash "{{ coolify_install_script_path }}" > "{{ coolify_install_log_path }}" 2>&1
+  args:
+    executable: /bin/bash
+  environment: "{{ coolify_install_environment }}"
+  register: coolify_reconfigure_result
+  changed_when: true
+  no_log: "{{ coolify_hide_installer_output | bool and not coolify_debug_installer | bool }}"
+  when: >-
+    coolify_run_upgrade | bool
+    or (coolify_compose_custom is defined and coolify_compose_custom.changed)
+
+- name: Wait for Coolify dashboard locally
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ coolify_app_port }}"
+    method: GET
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 307
+      - 308
+      - 401
+      - 403
+    return_content: false
+  register: coolify_dashboard_ping
+  retries: "{{ coolify_wait_retries }}"
+  delay: "{{ coolify_wait_delay_seconds }}"
+  until: coolify_dashboard_ping.status in [200, 301, 302, 307, 308, 401, 403]
+  changed_when: false
+
+- name: Validate public HTTPS endpoint when requested
+  ansible.builtin.uri:
+    url: "https://{{ coolify_public_hostname }}"
+    method: GET
+    validate_certs: true
+    status_code:
+      - 200
+      - 301
+      - 302
+      - 307
+      - 308
+      - 401
+      - 403
+      - 404
+      - 503
+    return_content: false
+  register: coolify_public_https_ping
+  retries: 10
+  delay: 5
+  until: coolify_public_https_ping.status in [200, 301, 302, 307, 308, 401, 403, 404, 503]
+  changed_when: false
+  when:
+    - coolify_validate_public_https | bool
+    - coolify_public_hostname | length > 0
+
+- name: Display Coolify summary
+  ansible.builtin.debug:
+    msg:
+      - "Coolify dashboard: http://{{ ansible_host | default(inventory_hostname) }}:{{ coolify_app_port }}"
+      - "Public hostname: {{ 'https://' ~ coolify_public_hostname if coolify_public_hostname | length > 0 else 'not configured yet' }}"
+      - "Coolify data dir: {{ coolify_data_root }}"
+      - "Coolify source dir: {{ coolify_source_dir }}"
+      - "Installer log: {{ coolify_install_log_path }}"

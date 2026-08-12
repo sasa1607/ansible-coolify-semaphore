@@ -1,0 +1,25 @@
+# Managed by Ansible. Do not edit manually.
+# Persistent Coolify compose override.
+# Coolify merges this file during upgrades from /data/coolify/source/docker-compose.custom.yml.
+
+services:
+  coolify:
+    ports:
+      - "{{ coolify_dashboard_bind_address }}:{{ coolify_app_port }}:8080"
+{% if coolify_coolify_cpus | string | length > 0 %}
+    cpus: {{ coolify_coolify_cpus }}
+{% endif %}
+{% if coolify_coolify_mem_limit | string | length > 0 %}
+    mem_limit: {{ coolify_coolify_mem_limit }}
+{% endif %}
+{% if coolify_coolify_mem_reservation | string | length > 0 %}
+    mem_reservation: {{ coolify_coolify_mem_reservation }}
+{% endif %}
+{% if coolify_postgres_mem_limit | string | length > 0 %}
+  postgres:
+    mem_limit: {{ coolify_postgres_mem_limit }}
+{% endif %}
+{% if coolify_redis_mem_limit | string | length > 0 %}
+  redis:
+    mem_limit: {{ coolify_redis_mem_limit }}
+{% endif %}

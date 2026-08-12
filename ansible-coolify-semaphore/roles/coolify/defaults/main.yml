@@ -1,0 +1,62 @@
+---
+coolify_install_script_url: "https://cdn.coollabs.io/coolify/install.sh"
+coolify_install_root: /opt/coolify
+coolify_install_script_path: "{{ coolify_install_root }}/install.sh"
+coolify_data_root: /data/coolify
+coolify_source_dir: "{{ coolify_data_root }}/source"
+
+# Dashboard / proxy ports used by a standard self-hosted Coolify installation.
+coolify_app_port: 8000
+coolify_realtime_port: 6001
+coolify_terminal_port: 6002
+coolify_http_port: 80
+coolify_https_port: 443
+
+# Optional public hostname. Configure the DNS/domain in Coolify after bootstrap.
+coolify_public_hostname: ""
+coolify_validate_public_https: false
+
+# Create the first Coolify administrator during installation.
+# Override these values from the Semaphore Variable Group.
+coolify_create_root_user: true
+coolify_root_username: "admin"
+coolify_root_email: "admin@example.com"
+coolify_root_password: "CHANGE_ME_IN_SEMAPHORE_SECRET"
+
+# Optional installer settings.
+coolify_docker_address_pool_base: ""
+coolify_docker_address_pool_size: ""
+coolify_docker_pool_force_override: false
+coolify_auto_update: true
+coolify_registry_url: ""
+
+# Optional persistent Docker Compose override.
+# Leave disabled for a standard first installation.
+coolify_compose_custom_enabled: false
+coolify_dashboard_bind_address: "0.0.0.0"
+coolify_coolify_cpus: ""
+coolify_coolify_mem_limit: ""
+coolify_coolify_mem_reservation: ""
+coolify_postgres_mem_limit: ""
+coolify_redis_mem_limit: ""
+
+# Bootstrap safeguards.
+coolify_force_install: false
+coolify_run_upgrade: false
+coolify_validate_ports: true
+coolify_allow_existing_port_listeners: false
+coolify_validate_resources: true
+coolify_min_memory_mb: 2048
+coolify_min_available_disk_mb: 30720
+
+coolify_wait_retries: 60
+coolify_wait_delay_seconds: 5
+
+# Installer logging.
+coolify_install_log_path: /var/log/coolify-ansible-install.log
+coolify_hide_installer_output: true
+coolify_debug_installer: false
+
+# Repair an old invalid ROOT_USERNAME containing whitespace if an existing
+# installation is encountered. Safe to leave enabled.
+coolify_repair_root_env: true

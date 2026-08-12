@@ -1,0 +1,42 @@
+---
+- name: Deploy Coolify
+  hosts: all
+  gather_facts: true
+  become: true
+
+  pre_tasks:
+    - name: Refuse placeholder Coolify root password
+      ansible.builtin.assert:
+        that:
+          - not coolify_create_root_user | bool or coolify_root_password != "CHANGE_ME_IN_SEMAPHORE_SECRET"
+          - not coolify_create_root_user | bool or coolify_root_password | length >= 12
+        fail_msg: >-
+          Configure coolify_root_password in the Semaphore Variable Group Secrets tab
+          before deploying (12 characters minimum for this bootstrap).
+      no_log: true
+
+    - name: Validate Coolify root email
+      ansible.builtin.assert:
+        that:
+          - not coolify_create_root_user | bool or coolify_root_email is match('^[^@]+@[^@]+\.[^@]+$')
+        fail_msg: "Configure a valid coolify_root_email in the Semaphore Variable Group."
+
+    - name: Validate Coolify root username
+      ansible.builtin.assert:
+        that:
+          - not coolify_create_root_user | bool or coolify_root_username | length >= 3
+          - not coolify_create_root_user | bool or coolify_root_username is match('^[A-Za-z0-9_-]+$')
+        fail_msg: >-
+          coolify_root_username must be at least 3 characters and contain only
+          letters, numbers, underscores or hyphens for this bootstrap.
+
+    - name: Refuse whitespace in Coolify root password
+      ansible.builtin.assert:
+        that:
+          - not coolify_create_root_user | bool or not (coolify_root_password is match('.*\s+.*'))
+        fail_msg: "Use a Coolify root password without whitespace for this bootstrap."
+      no_log: true
+
+  roles:
+    - docker
+    - coolify

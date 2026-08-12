@@ -1,0 +1,38 @@
+---
+- name: Preflight Coolify server
+  hosts: all
+  gather_facts: true
+  become: true
+
+  tasks:
+    - name: Verify Ansible connectivity
+      ansible.builtin.ping:
+
+    - name: Check root filesystem available space in MB
+      ansible.builtin.shell: "df -Pm / | awk 'NR==2 { print $4 }'"
+      args:
+        executable: /bin/bash
+      register: coolify_preflight_disk_mb
+      changed_when: false
+
+    - name: Validate minimum Coolify resources
+      ansible.builtin.assert:
+        that:
+          - ansible_architecture in ['x86_64', 'aarch64', 'arm64']
+          - ansible_memtotal_mb | int >= 2048
+          - coolify_preflight_disk_mb.stdout | int >= 30720
+        fail_msg: >-
+          Minimum expected for this bootstrap: 64-bit amd64/arm64, 2 GB RAM and
+          30 GB free on /. Current architecture={{ ansible_architecture }},
+          RAM={{ ansible_memtotal_mb }} MB, free disk={{ coolify_preflight_disk_mb.stdout }} MB.
+
+    - name: Display target information
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Address: {{ ansible_host | default(inventory_hostname) }}"
+          - "OS: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "Architecture: {{ ansible_architecture }}"
+          - "RAM: {{ ansible_memtotal_mb }} MB"
+          - "Free disk on /: {{ coolify_preflight_disk_mb.stdout }} MB"
+          - "Privilege escalation: OK"
