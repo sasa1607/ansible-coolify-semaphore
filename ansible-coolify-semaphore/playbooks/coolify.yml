@@ -4,15 +4,18 @@
   gather_facts: true
   become: true
 
+  vars:
+    # Secret injected by Semaphore from Variable Group > Secrets > Environment variables.
+    coolify_root_password: "{{ lookup('ansible.builtin.env', 'COOLIFY_ROOT_PASSWORD') }}"
+
   pre_tasks:
-    - name: Refuse placeholder Coolify root password
+    - name: Refuse missing or placeholder Coolify root password
       ansible.builtin.assert:
         that:
-          - not coolify_create_root_user | bool or coolify_root_password != "CHANGE_ME_IN_SEMAPHORE_SECRET"
           - not coolify_create_root_user | bool or coolify_root_password | length >= 12
         fail_msg: >-
-          Configure coolify_root_password in the Semaphore Variable Group Secrets tab
-          before deploying (12 characters minimum for this bootstrap).
+          Configure the secret environment variable COOLIFY_ROOT_PASSWORD in the
+          Semaphore Variable Group before deploying (12 characters minimum).
       no_log: true
 
     - name: Validate Coolify root email
